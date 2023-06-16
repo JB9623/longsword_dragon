@@ -744,7 +744,7 @@ module overmind::breeder_core {
         // TODO: Assert that timestamp related to the provided monster_pair_hash is smaller or equals current timestamp
         let current_timestamp = timestamp::now_seconds();
         let hash = simple_map::borrow(ongoing_breedings, dragons_pair_hash);
-        assert!(*hash <= current_timestamp, ERROR_BREEDING_HAS_NOT_ENDED);
+        assert!(*hash > current_timestamp, ERROR_BREEDING_HAS_NOT_ENDED);
     }
 
     inline fun assert_amount_of_swords_is_correct(swords: &vector<u64>, combine_amount: u64) {
