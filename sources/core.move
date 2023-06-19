@@ -15,7 +15,7 @@ module overmind::breeder_core {
     use std::signer;
     use std::string::{Self, String};
     use std::vector;
-    use aptos_std::aptos_hash;
+    // use aptos_std::aptos_hash;
     use aptos_std::from_bcs;
     use aptos_std::math64;
     use aptos_std::simple_map::{Self, SimpleMap};
@@ -27,7 +27,7 @@ module overmind::breeder_core {
     use aptos_token_objects::token::{Self, Token};
     use aptos_token_objects::property_map::{Self, PropertyMap};
     use overmind::breeder_events::{
-        Self,
+        /*Self,*/
         CreateDragonCollectionEvent,
         CreateDragonEvent,
         BreedDragonsEvent,
@@ -36,7 +36,8 @@ module overmind::breeder_core {
         CreateSwordEvent,
         CombineSwordsEvent,
         new_create_dragon_collection_event,
-        new_create_sword_collection_event
+        new_create_sword_collection_event,
+        new_create_dragon_event
     };
     #[test_only]
     use aptos_token_objects::royalty;
@@ -44,8 +45,8 @@ module overmind::breeder_core {
     use aptos_token_objects::collection;
     #[test_only]
     use aptos_token_objects::collection::Collection;
-    #[test_only]
-    use std::features;
+    // #[test_only]
+    // use std::features;
 
     ////////////
     // ERRORS //
@@ -178,8 +179,6 @@ module overmind::breeder_core {
     */
     public entry fun init(admin: &signer) {
 
-        let admin_address = signer::address_of(admin);
-
         // TODO: Assert the signer is the admin
         assert_signer_is_admin(admin);
 
@@ -188,7 +187,6 @@ module overmind::breeder_core {
                     account::create_resource_account(admin, BREEDER_SEED);
 
         // TODO: Create State instance and move it to the admin
-        let signer_address = signer::address_of(&account_resource_signer);
 
         let create_dragon_collection_events = account::new_event_handle<CreateDragonCollectionEvent>(&account_resource_signer);
         let create_dragon_events = account::new_event_handle<CreateDragonEvent>(&account_resource_signer);
@@ -258,10 +256,13 @@ module overmind::breeder_core {
         create_collection_internal(_account, name, description, uri, DRAGON_COLLECTION_MAX_SUPPLY, false, false);
 
         // TODO: Calculate monster starting properties
-        let starting_properties = calculate_dragons_starting_properties(breeding_time);
-
+        let cal_properties = calculate_dragons_starting_properties(breeding_time);
+        let starting_properties = vector::empty<vector<u8>>();
         // TODO: Push ability property to the starting properties
-        vector::push_back(&mut starting_properties, ability_property);
+        vector::for_each(cal_properties, |e| {
+            vector::push_back(&mut starting_properties, bcs::to_bytes(&e));
+        });
+        vector::push_back(&mut starting_properties, bcs::to_bytes(&ability_property));
 
         let dragon_race = DragonRace {
             breeding_time,
@@ -326,17 +327,23 @@ module overmind::breeder_core {
 
         // TODO: Create a new Equipment and add it to Combiner's collections
         let starting_properties = vector::empty<vector<u8>>();
-        vector::push_back(&mut starting_properties, property_values);
-        vector::push_back(&mut starting_properties, ability_property);
+        vector::for_each(property_values, |e| {
+            vector::push_back(&mut starting_properties, bcs::to_bytes(&e));
+        });
+        vector::push_back(&mut starting_properties, bcs::to_bytes(&ability_property));
+        
         let sword_type = SwordType {
             combine_amount,
             starting_properties
         };
 
+
+        simple_map::add(&mut state.combiner.collections, name, sword_type);
+
         // TODO: Emit CreateEquipmentCollectionEvent event
         let timestamp = timestamp::now_seconds();
         event::emit_event<CreateSwordCollectionEvent>(
-            &mut state.breeder.create_sword_collection_events,
+            &mut state.combiner.create_sword_collection_events,
             new_create_sword_collection_event( 
                 name,
                 description,
@@ -356,40 +363,75 @@ module overmind::breeder_core {
         @param dragon_description - description of the created dragon token
         @param dragon_uri - image's UTI of the created dragon token
     */
-    // public entry fun create_dragon(
-    //     account: &signer,
-    //     collection_name: String,
-    //     dragon_name: String,
-    //     dragon_description: String,
-    //     dragon_uri: String
-    // ) acquires State {
-    //     // TODO: Assert that state is initialized
-    //     assert_state_initialized();
+    public entry fun create_dragon(
+        account: &signer,
+        collection_name: String,
+        dragon_name: String,
+        dragon_description: String,
+        dragon_uri: String
+    ) acquires State {
+        // TODO: Assert that state is initialized
+        assert_state_initialized();
 
-    //     // TODO: Assert that collection with provided name exists
-    //     let state = borrow_global_mut<State>(@admin);
-    //     let (keys, _) = simple_map::to_vec_pair(state.breeder.collections);
-    //     assert_collection_exists(keys, name);
+        // TODO: Assert that collection with provided name exists
+        let state = borrow_global_mut<State>(@admin);
+        let (keys, _) = simple_map::to_vec_pair(state.breeder.collections);
 
-    //     // TODO: Create a variable holding PDA's GUID next creation number
-    //     guid::creation_num();
+        assert_collection_exists(&keys, &collection_name);
 
-    //     // TODO: Mint a new NFT
+        // TODO: Create a variable holding PDA's GUID next creation number
+        let resource_account_address = account::get_signer_capability_address(&state.cap);
+        let creation_number = account::get_guid_next_creation_num(resource_account_address);
 
-    //     // TODO: Transfer the NFT to the signer of the transaction
+        // let token_addr = object::create_guid_object_address(
+        //     resource_account_address,
+        //     creation_number
+        // );
+        // let token = object::address_to_object<Token>(token_addr);
 
-    //     // TODO: Emit CreateMonsterEvent event
-    // }
+        // TODO: Mint a new NFT
 
-    // /*
-    //     Creates a new sword token from provided collection
-    //     @param account - account, which the newly created token is transfered to
-    //     @param collection_name - name of the collection
-    //     @param sword_name - name of the created sword token
-    //     @param sword_description - description of the created sword token
-    //     @param sword_uri - image's UTI of the created sword token
-    //     @param amount - amount of tokens to be created
-    // */
+        let token_constructor_ref = token::create_named_token(
+            account,
+            collection_name,
+            dragon_description,
+            dragon_name,
+            option::none(),
+            dragon_uri
+        );
+
+        let token_object = object::object_from_constructor_ref<Token>(&token_constructor_ref);
+
+        // TODO: Transfer the NFT to the signer of the transaction
+        let account_address = signer::address_of(account);
+        object::transfer(account, token_object, account_address);
+
+        // TODO: Emit CreateMonsterEvent event
+        let timestamp = timestamp::now_seconds();
+        event::emit_event<CreateDragonEvent>(
+            &mut state.breeder.create_dragon_events,
+            new_create_dragon_event(
+                account_address,
+                collection_name,
+                dragon_name,
+                dragon_description,
+                dragon_uri,
+                creation_number,
+                timestamp
+            )
+        );
+
+    }
+
+    /*
+        Creates a new sword token from provided collection
+        @param account - account, which the newly created token is transfered to
+        @param collection_name - name of the collection
+        @param sword_name - name of the created sword token
+        @param sword_description - description of the created sword token
+        @param sword_uri - image's UTI of the created sword token
+        @param amount - amount of tokens to be created
+    */
     // public entry fun create_sword(
     //     account: &signer,
     //     collection_name: String,
@@ -399,15 +441,42 @@ module overmind::breeder_core {
     //     amount: u64
     // ) acquires State {
     //     // TODO: Assert that state is initialized
+    //     assert_state_initialized();
 
     //     // TODO: Assert that collection with provided name exists
+    //     let state = borrow_global_mut<State>(@admin);
+    //     let (keys, _) = simple_map::to_vec_pair(state.combiner.collections);
+
+    //     assert_collection_exists(&keys, &collection_name);
 
     //     // TODO: For every token to be created:
     //     //      1. Create a variable holding PDA's GUID next creation number
     //     //      2. Mint a new NFT
     //     //      3. Transfer the NFT to the signer of the transaction
 
+
+    //     let resource_account_address = account::get_signer_capability_address(&state.cap);
+    //     let creation_number = account::get_guid_next_creation_num(resource_account_address);
+    //     let token_addr = object::create_guid_object_address(
+    //         resource_account_address,
+    //         creation_number
+    //     );
+    //     let token = object::address_to_object<Token>(token_addr);
     //     // TODO: Emit CreateEquipmentEvent event
+    //     let timestamp = timestamp::now_seconds();
+    //     event::emit_event<CreateSwordEvent>(
+    //         &mut state.breeder.create_dragon_events,
+    //         new_create_sword_event(
+    //             account_address,
+    //             collection_name,
+    //             sword_name,
+    //             sword_description,
+    //             sword_uri,
+    //             amount,
+    //             creation_number,
+    //             timestamp
+    //         )
+    //     );
     // }
 
     // /*
@@ -565,25 +634,41 @@ module overmind::breeder_core {
         freezable: bool
     ) {
         // TODO: Call aptos_token::creation_collection function with appropriate parameters
-
-        token::create_collection(
+        aptos_token::create_collection(
             creator, 
-            name,
             description,
-            uri,
             supply,
-            vector<bool>[false, false, false]
+            name,
+            uri,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            burnable,
+            freezable,
+            1,
+            10
         );
     }
 
-    // /*
-    //     Converts byte representation of provided property parameters (keys, types, values) into string representation
-    //     @param property_params - parameters of properties
-    //     @returns - string representation of properties' parameters
-    // */
-    // inline fun get_property_params_as_strings(property_params: &vector<vector<u8>>): vector<String> {
-    //     // TODO: Convert vector of byte representations into vector of string representations
-    // }
+    /*
+        Converts byte representation of provided property parameters (keys, types, values) into string representation
+        @param property_params - parameters of properties
+        @returns - string representation of properties' parameters
+    */
+    inline fun get_property_params_as_strings(property_params: &vector<vector<u8>>): vector<String> {
+        // TODO: Convert vector of byte representations into vector of string representations
+        let value = vector::empty<String>();
+        vector::for_each(*property_params, |e| {
+            let param = string::utf8(e);
+            vector::push_back(&mut value, param);
+        });
+
+        value
+    }
 
     /*
         Calculates starting properties of dragons basing on provided breeding time
@@ -595,21 +680,22 @@ module overmind::breeder_core {
         //        (b_t - MIN_B_T)^3
         //      --------------------- * P_Diff + P_Min
         //      (MAX_B_T - MIN_B_T)^3
-
-        let top = (breeding_time - MINIMAL_BREEDING_TIME) ^ 3;
-        let bottom = (MAXIMAL_BREEDING_TIME - MINIMAL_BREEDING_TIME) ^ 3;
-        let mul = top / bottom;
+        let top = math64::pow((breeding_time - MINIMAL_BREEDING_TIME) , 3);
+        let bottom = math64::pow((MAXIMAL_BREEDING_TIME - MINIMAL_BREEDING_TIME) , 3);
         let value = vector::empty<u64>();
         let index = 0;
         while(index < vector::length(&DRAGON_MAXIMAL_START_PROPERTY_VALUES)) {
             let max_value = *vector::borrow(&DRAGON_MAXIMAL_START_PROPERTY_VALUES, index);
             let min_value = *vector::borrow(&DRAGON_MINIMAL_START_PROPERTY_VALUES, index);
+            let pdiff = max_value - min_value;
             vector::push_back(
                 &mut value, 
-                (max_value - min_value) * mul + min_value
+                math64::mul_div(pdiff, top, bottom) + min_value
             );
             index = index + 1;
         };
+
+        // std::debug::print<vector<u64>>(&value);
 
         value
 
@@ -633,10 +719,10 @@ module overmind::breeder_core {
         //      --------------------------- * P_Diff + P_MIN
         //      (MAX_AMOUNT - MIN_AMOUNT)^2
 
-        let top = (combine_amount - MINIMAL_AMOUNT_TO_COMBINE) ^ 2;
-        let bottom = (MAXIMAL_AMOUNT_TO_COMBINE - MINIMAL_AMOUNT_TO_COMBINE) ^ 2;
-        let P_Diff = SWORD_MAXIMAL_START_PROPERTY_VALUES_SUM - SWORD_MINIMAL_START_PROPERTY_VALUES_SUM;
-        let value = top / bottom * P_Diff + SWORD_MINIMAL_START_PROPERTY_VALUES_SUM;
+        let top = math64::pow((combine_amount - MINIMAL_AMOUNT_TO_COMBINE) , 2);
+        let bottom = math64::pow((MAXIMAL_AMOUNT_TO_COMBINE - MINIMAL_AMOUNT_TO_COMBINE) , 2);
+        let p_diff = SWORD_MAXIMAL_START_PROPERTY_VALUES_SUM - SWORD_MINIMAL_START_PROPERTY_VALUES_SUM;
+        let value = math64::mul_div(top , p_diff, bottom) + SWORD_MINIMAL_START_PROPERTY_VALUES_SUM;
 
         value
         // Where:
@@ -654,21 +740,45 @@ module overmind::breeder_core {
         @param property_maps - PropertyMap instances of tokens
         @returns - combined property values
     */
-    // inline fun combine_properties(
-    //     property_keys: vector<String>,
-    //     property_maps: vector<Object<PropertyMap>>
-    // ): vector<vector<u8>> {
-    //     // TODO: Assert that both vectors have the same length
+    inline fun combine_properties(
+        property_keys: vector<String>,
+        property_maps: vector<Object<PropertyMap>>
+    ): vector<vector<u8>> {
+        // TODO: Assert that both vectors have the same length
+        // assert!(vector::length(&property_keys) == property_map::length(firstmap), ERROR_PROPERTY_LENGTH_MISMATCH);
+        assert_property_vectors_lengths(&property_keys, &property_maps);
+        // TODO: Create a vector for combined properties
+        let result = vector::empty<vector<u8>>();
 
-    //     // TODO: Create a vector for combined properties
+        let index = 0;
+        while(index < vector::length(&property_keys)) {
+            let map_index = 0;
+            let key_value = vector::borrow(&property_keys, index);
+            let accumulator = 0;
+            while(map_index < vector::length(&property_maps)) {
+                let item_value = vector::borrow(&property_maps, map_index);
+                map_index = map_index + 1;
+                let (type, value) = property_map::read(item_value, key_value);
+                if (type != string::utf8(b"u64")) {
+                    vector::push_back(&mut result, value);
+                    break
+                };
+                accumulator = accumulator + from_bcs::to_u64(value);
+            };
+            if (accumulator != 0)
+                vector::push_back(&mut result, bcs::to_bytes(&accumulator));
+            index = index + 1;
+        };
 
-    //     // TODO: For each of property keys:
-    //     //      1. Read property's type and value from each of property maps
-    //     //          a. If the type is u64, then add it to an accumulator
-    //     //          b. If the type is not u64, then push it to the vector and break looping through property maps
-    //     //      2. If the accumulator does not have any value, then continue to the next iteration
-    //     //      3. Otherwise, push the accumulator's value to the vector
-    // }
+        result
+
+        // TODO: For each of property keys:
+        //      1. Read property's type and value from each of property maps
+        //          a. If the type is u64, then add it to an accumulator
+        //          b. If the type is not u64, then push it to the vector and break looping through property maps
+        //      2. If the accumulator does not have any value, then continue to the next iteration
+        //      3. Otherwise, push the accumulator's value to the vector
+    }
 
     /////////////
     // ASSERTS //
@@ -705,12 +815,12 @@ module overmind::breeder_core {
         let sum = 0;
         vector::for_each(*property_values, |e| {sum = sum + e;});
 
-        assert!(expected_sum <= sum, ERROR_INVALID_SWORDS_PROPERTY_VALUES_SUM);
+        assert!(sum <= expected_sum, ERROR_INVALID_SWORDS_PROPERTY_VALUES_SUM);
     }
 
     inline fun assert_collection_does_not_exist(collections: &vector<String>, collection_name: &String) {
         // TODO: Assert that the vector does not contain the collection's name
-        assert!(!vector::contains(collections, collection_name), ERROR_COLLECTION_DOES_NOT_EXIST);
+        assert!(!vector::contains(collections, collection_name), ERROR_COLLECTION_ALREADY_EXISTS);
     }
 
     inline fun assert_collection_exists(collections: &vector<String>, collection_name: &String) {
@@ -726,7 +836,7 @@ module overmind::breeder_core {
 
     inline fun assert_dragon_not_breeding(monster: Object<Token>) {
         // TODO: Assert that transfer of the object is allowed
-
+        assert!(object::ungated_transfer_allowed(monster), ERROR_DRAGON_DURING_BREEDING);
     }
 
     inline fun assert_dragons_are_breeding(
@@ -744,7 +854,7 @@ module overmind::breeder_core {
         // TODO: Assert that timestamp related to the provided monster_pair_hash is smaller or equals current timestamp
         let current_timestamp = timestamp::now_seconds();
         let hash = simple_map::borrow(ongoing_breedings, dragons_pair_hash);
-        assert!(*hash > current_timestamp, ERROR_BREEDING_HAS_NOT_ENDED);
+        assert!(*hash <= current_timestamp, ERROR_BREEDING_HAS_NOT_ENDED);
     }
 
     inline fun assert_amount_of_swords_is_correct(swords: &vector<u64>, combine_amount: u64) {
@@ -757,11 +867,15 @@ module overmind::breeder_core {
         properties: &vector<Object<PropertyMap>>
     ) {
         // TODO: Assert that each of the property maps length equals to number of keys in property_keys
+        vector::for_each(*properties, |e| {
+            assert!(vector::length(property_keys) == property_map::length(&e), ERROR_PROPERTY_LENGTH_MISMATCH);
+        });
 
     }
 
     inline fun assert_token_is_from_correct_collection(collection_name: String, token: Object<Token>) {
         // TODO: Assert that collection of the token is the same as collection_name
+
     }
 
     ///////////
@@ -819,513 +933,514 @@ module overmind::breeder_core {
         );
     }
 
-    // #[test]
-    // fun test_calculate_dragons_starting_properties() {
-    //     let breeding_time = MINIMAL_BREEDING_TIME;
-    //     let starting_properties = calculate_dragons_starting_properties(breeding_time);
-    //     assert!(starting_properties == DRAGON_MINIMAL_START_PROPERTY_VALUES, 0);
+    #[test]
+    fun test_calculate_dragons_starting_properties() {
+        let breeding_time = MINIMAL_BREEDING_TIME;
+        let starting_properties = calculate_dragons_starting_properties(breeding_time);
+        assert!(starting_properties == DRAGON_MINIMAL_START_PROPERTY_VALUES, 0);
 
-    //     let breeding_time = MAXIMAL_BREEDING_TIME;
-    //     let starting_properties = calculate_dragons_starting_properties(breeding_time);
-    //     assert!(starting_properties == DRAGON_MAXIMAL_START_PROPERTY_VALUES, 1);
+        let breeding_time = MAXIMAL_BREEDING_TIME;
+        let starting_properties = calculate_dragons_starting_properties(breeding_time);
+        assert!(starting_properties == DRAGON_MAXIMAL_START_PROPERTY_VALUES, 1);
 
-    //     let breeding_time = 60 * 60 * 24 * 16;
-    //     let starting_properties = calculate_dragons_starting_properties(breeding_time);
-    //     assert!(*vector::borrow(&starting_properties, 0) == 21, 2);
-    //     assert!(*vector::borrow(&starting_properties, 1) == 1, 3);
-    //     assert!(*vector::borrow(&starting_properties, 2) == 3, 4);
-    // }
+        let breeding_time = 60 * 60 * 24 * 16;
+        let starting_properties = calculate_dragons_starting_properties(breeding_time);
+        assert!(*vector::borrow(&starting_properties, 0) == 21, 2);
+        assert!(*vector::borrow(&starting_properties, 1) == 1, 3);
+        assert!(*vector::borrow(&starting_properties, 2) == 3, 4);
+    }
 
-    // #[test]
-    // fun test_calculate_swords_starting_properties_sum() {
-    //     let combine_amount = 2;
-    //     let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
-    //     assert!(starting_properties_sum == SWORD_MINIMAL_START_PROPERTY_VALUES_SUM, 0);
+    #[test]
+    fun test_calculate_swords_starting_properties_sum() {
+        let combine_amount = 2;
+        let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
+        assert!(starting_properties_sum == SWORD_MINIMAL_START_PROPERTY_VALUES_SUM, 0);
 
-    //     let combine_amount = 10;
-    //     let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
-    //     assert!(starting_properties_sum == SWORD_MAXIMAL_START_PROPERTY_VALUES_SUM, 1);
+        let combine_amount = 10;
+        let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
+        assert!(starting_properties_sum == SWORD_MAXIMAL_START_PROPERTY_VALUES_SUM, 1);
 
-    //     let combine_amount = 6;
-    //     let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
-    //     assert!(starting_properties_sum == 32, 2);
-    // }
+        let combine_amount = 6;
+        let starting_properties_sum = calculate_swords_starting_properties_sum(combine_amount);
+        assert!(starting_properties_sum == 32, 2);
+    }
 
-    // #[test]
-    // fun test_combine_properties() {
-    //     let property_keys = vector[
-    //         string::utf8(b"First key"),
-    //         string::utf8(b"Second key"),
-    //         string::utf8(b"Third key"),
-    //         string::utf8(b"Fourth key"),
-    //         string::utf8(b"Fifth key")
-    //     ];
-    //     let property_types = vector[
-    //         string::utf8(b"u64"),
-    //         string::utf8(b"u64"),
-    //         string::utf8(b"0x1::string::String"),
-    //         string::utf8(b"address"),
-    //         string::utf8(b"u64")
-    //     ];
-    //     let property_maps = vector[
-    //         property_map::prepare_input(
-    //             property_keys,
-    //             property_types,
-    //             vector[
-    //                 bcs::to_bytes(&150),
-    //                 bcs::to_bytes(&46),
-    //                 bcs::to_bytes(&string::utf8(b"Random ability")),
-    //                 bcs::to_bytes(&@0xACE),
-    //                 bcs::to_bytes(&111)
-    //             ]
-    //         ),
-    //         property_map::prepare_input(
-    //             property_keys,
-    //             property_types,
-    //             vector[
-    //                 bcs::to_bytes(&45),
-    //                 bcs::to_bytes(&11),
-    //                 bcs::to_bytes(&string::utf8(b"Random ability")),
-    //                 bcs::to_bytes(&@0xACE),
-    //                 bcs::to_bytes(&111)
-    //             ]
-    //         ),
-    //         property_map::prepare_input(
-    //             property_keys,
-    //             property_types,
-    //             vector[
-    //                 bcs::to_bytes(&846),
-    //                 bcs::to_bytes(&5),
-    //                 bcs::to_bytes(&string::utf8(b"Random ability")),
-    //                 bcs::to_bytes(&@0xACE),
-    //                 bcs::to_bytes(&111)
-    //             ]
-    //         ),
-    //     ];
-    //     let creator = account::create_account_for_test(@0xCAFE);
-    //     let property_map_objects = vector::map(property_maps, |property_map| {
-    //         let creation_number = account::get_guid_next_creation_num(@0xCAFE);
-    //         let constructor_ref = object::create_object_from_account(&creator);
-    //         property_map::init(&constructor_ref, property_map);
+    #[test]
+    fun test_combine_properties() {
+        let property_keys = vector[
+            string::utf8(b"First key"),
+            string::utf8(b"Second key"),
+            string::utf8(b"Third key"),
+            string::utf8(b"Fourth key"),
+            string::utf8(b"Fifth key")
+        ];
+        let property_types = vector[
+            string::utf8(b"u64"),
+            string::utf8(b"u64"),
+            string::utf8(b"0x1::string::String"),
+            string::utf8(b"address"),
+            string::utf8(b"u64")
+        ];
+        let property_maps = vector[
+            property_map::prepare_input(
+                property_keys,
+                property_types,
+                vector[
+                    bcs::to_bytes(&150),
+                    bcs::to_bytes(&46),
+                    bcs::to_bytes(&string::utf8(b"Random ability")),
+                    bcs::to_bytes(&@0xACE),
+                    bcs::to_bytes(&111)
+                ]
+            ),
+            property_map::prepare_input(
+                property_keys,
+                property_types,
+                vector[
+                    bcs::to_bytes(&45),
+                    bcs::to_bytes(&11),
+                    bcs::to_bytes(&string::utf8(b"Random ability")),
+                    bcs::to_bytes(&@0xACE),
+                    bcs::to_bytes(&111)
+                ]
+            ),
+            property_map::prepare_input(
+                property_keys,
+                property_types,
+                vector[
+                    bcs::to_bytes(&846),
+                    bcs::to_bytes(&5),
+                    bcs::to_bytes(&string::utf8(b"Random ability")),
+                    bcs::to_bytes(&@0xACE),
+                    bcs::to_bytes(&111)
+                ]
+            ),
+        ];
+        let creator = account::create_account_for_test(@0xCAFE);
+        let property_map_objects = vector::map(property_maps, |property_map| {
+            let creation_number = account::get_guid_next_creation_num(@0xCAFE);
+            let constructor_ref = object::create_object_from_account(&creator);
+            property_map::init(&constructor_ref, property_map);
 
-    //         let property_map_address = object::create_guid_object_address(@0xCAFE, creation_number);
-    //         object::address_to_object<PropertyMap>(property_map_address)
-    //     });
+            let property_map_address = object::create_guid_object_address(@0xCAFE, creation_number);
+            object::address_to_object<PropertyMap>(property_map_address)
+        });
 
-    //     let combined_properties = combine_properties(property_keys, property_map_objects);
-    //     assert!(vector::length(&combined_properties) == vector::length(&property_keys), 0);
-    //     assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 0)) == 1041, 1);
-    //     assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 1)) == 62, 2);
-    //     assert!(
-    //         from_bcs::to_string(*vector::borrow(&combined_properties, 2)) ==
-    //             string::utf8(b"Random ability"),
-    //         3
-    //     );
-    //     assert!(from_bcs::to_address(*vector::borrow(&combined_properties, 3)) == @0xACE, 4);
-    //     assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 4)) == 333, 5);
-    // }
+        let combined_properties = combine_properties(property_keys, property_map_objects);
+        assert!(vector::length(&combined_properties) == vector::length(&property_keys), 0);
+        assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 0)) == 1041, 1);
+        assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 1)) == 62, 2);
+        assert!(
+            from_bcs::to_string(*vector::borrow(&combined_properties, 2)) ==
+                string::utf8(b"Random ability"),
+            3
+        );
+        assert!(from_bcs::to_address(*vector::borrow(&combined_properties, 3)) == @0xACE, 4);
+        assert!(from_bcs::to_u64(*vector::borrow(&combined_properties, 4)) == 333, 5);
+    }
 
-    // #[test]
-    // fun test_init() acquires State {
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+    #[test]
+    fun test_init() acquires State {
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let state = borrow_global<State>(@admin);
-    //     assert!(simple_map::length(&state.breeder.collections) == 0, 0);
-    //     assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 1);
-    //     assert!(simple_map::length(&state.combiner.collections) == 0, 2);
-    //     assert!(event::counter(&state.breeder.create_dragon_collection_events) == 0, 3);
-    //     assert!(event::counter(&state.breeder.create_dragon_events) == 0, 4);
-    //     assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
-    //     assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
-    //     assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 7);
-    //     assert!(event::counter(&state.combiner.create_sword_events) == 0, 8);
-    //     assert!(event::counter(&state.combiner.combine_swords_events) == 0, 9);
+        let state = borrow_global<State>(@admin);
+        assert!(simple_map::length(&state.breeder.collections) == 0, 0);
+        assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 1);
+        assert!(simple_map::length(&state.combiner.collections) == 0, 2);
+        assert!(event::counter(&state.breeder.create_dragon_collection_events) == 0, 3);
+        assert!(event::counter(&state.breeder.create_dragon_events) == 0, 4);
+        assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
+        assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
+        assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 7);
+        assert!(event::counter(&state.combiner.create_sword_events) == 0, 8);
+        assert!(event::counter(&state.combiner.combine_swords_events) == 0, 9);
 
-    //     let resource_account_address = account::create_resource_address(&@admin, BREEDER_SEED);
-    //     assert!(&state.cap == &account::create_test_signer_cap(resource_account_address), 10);
-    // }
+        let resource_account_address = account::create_resource_address(&@admin, BREEDER_SEED);
+        assert!(&state.cap == &account::create_test_signer_cap(resource_account_address), 10);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 0, location = Self)]
-    // fun test_init_signer_not_admin() {
-    //     let account = account::create_account_for_test(@0xACE);
-    //     init(&account);
-    // }
+    #[test]
+    #[expected_failure(abort_code = 0, location = Self)]
+    fun test_init_signer_not_admin() {
+        let account = account::create_account_for_test(@0xACE);
+        init(&account);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 524303, location = aptos_framework::account)]
-    // fun test_init_resource_account_already_exists() {
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
-    //     init(&admin);
-    // }
+    #[test]
+    #[expected_failure(abort_code = 524303, location = aptos_framework::account)]
+    fun test_init_resource_account_already_exists() {
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
+        init(&admin);
+    }
 
-    // #[test]
-    // fun test_create_dragon_collection() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    fun test_create_dragon_collection() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Dragon collection");
-    //     let description = string::utf8(b"This is a dragon collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Dragon collection");
+        let description = string::utf8(b"This is a dragon collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
 
-    //     let state = borrow_global<State>(@admin);
-    //     assert!(simple_map::length(&state.breeder.collections) == 1, 0);
-    //     assert!(simple_map::contains_key(&state.breeder.collections, &name), 1);
-    //     assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 2);
-    //     assert!(event::counter(&state.breeder.create_dragon_collection_events) == 1, 3);
-    //     assert!(event::counter(&state.breeder.create_dragon_events) == 0, 4);
-    //     assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
-    //     assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
-    //     assert!(simple_map::length(&state.combiner.collections) == 0, 7);
-    //     assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 8);
-    //     assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
-    //     assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
+        let state = borrow_global<State>(@admin);
+        assert!(simple_map::length(&state.breeder.collections) == 1, 0);
+        assert!(simple_map::contains_key(&state.breeder.collections, &name), 1);
+        assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 2);
+        assert!(event::counter(&state.breeder.create_dragon_collection_events) == 1, 3);
+        assert!(event::counter(&state.breeder.create_dragon_events) == 0, 4);
+        assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
+        assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
+        assert!(simple_map::length(&state.combiner.collections) == 0, 7);
+        assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 8);
+        assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
+        assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
 
-    //     let dragon_race = simple_map::borrow(&state.breeder.collections, &name);
-    //     assert!(dragon_race.breeding_time == breeding_time, 11);
+        let dragon_race = simple_map::borrow(&state.breeder.collections, &name);
+        assert!(dragon_race.breeding_time == breeding_time, 11);
 
-    //     let expected_starting_properties = vector[
-    //         bcs::to_bytes(&40),
-    //         bcs::to_bytes(&3),
-    //         bcs::to_bytes(&7),
-    //         bcs::to_bytes(&ability_property)
-    //     ];
-    //     assert!(dragon_race.starting_properties == expected_starting_properties, 12);
-    // }
+        let expected_starting_properties = vector[
+            bcs::to_bytes(&40),
+            bcs::to_bytes(&3),
+            bcs::to_bytes(&7),
+            bcs::to_bytes(&ability_property)
+        ];
+        assert!(dragon_race.starting_properties == expected_starting_properties, 12);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 1, location = Self)]
-    // fun test_create_dragon_collection_state_not_initialized() acquires State {
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Dragon collection");
-    //     let description = string::utf8(b"This is a dragon collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
-    // }
+    #[test]
+    #[expected_failure(abort_code = 1, location = Self)]
+    fun test_create_dragon_collection_state_not_initialized() acquires State {
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Dragon collection");
+        let description = string::utf8(b"This is a dragon collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 2, location = Self)]
-    // fun test_create_dragon_collection_incorrect_breeding_time_too_small() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    #[expected_failure(abort_code = 2, location = Self)]
+    fun test_create_dragon_collection_incorrect_breeding_time_too_small() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Dragon collection");
-    //     let description = string::utf8(b"This is a dragon collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 11;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
-    // }
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Dragon collection");
+        let description = string::utf8(b"This is a dragon collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 11;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 2, location = Self)]
-    // fun test_create_dragon_collection_incorrect_breeding_time_too_big() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    #[expected_failure(abort_code = 2, location = Self)]
+    fun test_create_dragon_collection_incorrect_breeding_time_too_big() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Dragon collection");
-    //     let description = string::utf8(b"This is a dragon collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 5646851151;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
-    // }
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Dragon collection");
+        let description = string::utf8(b"This is a dragon collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 5646851151;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 5, location = Self)]
-    // fun test_create_dragon_collection_already_exists() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    #[expected_failure(abort_code = 5, location = Self)]
+    fun test_create_dragon_collection_already_exists() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Dragon collection");
-    //     let description = string::utf8(b"This is a dragon collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 60 * 60 * 24 * 13;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
-    //     create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
-    // }
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Dragon collection");
+        let description = string::utf8(b"This is a dragon collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 60 * 60 * 24 * 13;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+        create_dragon_collection(&account, name, description, uri, breeding_time, ability_property);
+    }
 
-    // #[test]
-    // fun test_create_sword_collection() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    fun test_create_sword_collection() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 4;
-    //     let property_values = vector[10, 5];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 4;
+        let property_values = vector[10, 5];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
 
-    //     let state = borrow_global<State>(@admin);
-    //     assert!(simple_map::length(&state.breeder.collections) == 0, 0);
-    //     assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 1);
-    //     assert!(event::counter(&state.breeder.create_dragon_collection_events) == 0, 2);
-    //     assert!(event::counter(&state.breeder.create_dragon_events) == 0, 3);
-    //     assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 4);
-    //     assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 5);
-    //     assert!(simple_map::length(&state.combiner.collections) == 1, 6);
-    //     assert!(simple_map::contains_key(&state.combiner.collections, &name), 7);
-    //     assert!(event::counter(&state.combiner.create_sword_collection_events) == 1, 8);
-    //     assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
-    //     assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
+        let state = borrow_global<State>(@admin);
+        assert!(simple_map::length(&state.breeder.collections) == 0, 0);
+        assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 1);
+        assert!(event::counter(&state.breeder.create_dragon_collection_events) == 0, 2);
+        assert!(event::counter(&state.breeder.create_dragon_events) == 0, 3);
+        assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 4);
+        assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 5);
+        assert!(simple_map::length(&state.combiner.collections) == 1, 6);
+        assert!(simple_map::contains_key(&state.combiner.collections, &name), 7);
+        assert!(event::counter(&state.combiner.create_sword_collection_events) == 1, 8);
+        assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
+        assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
 
-    //     let sword_type = simple_map::borrow(&state.combiner.collections, &name);
-    //     assert!(sword_type.combine_amount == combine_amount, 11);
+        let sword_type = simple_map::borrow(&state.combiner.collections, &name);
+        assert!(sword_type.combine_amount == combine_amount, 11);
 
-    //     let expected_starting_properties = vector::map_ref(&property_values, |value| {
-    //         bcs::to_bytes(value)
-    //     });
-    //     vector::push_back(&mut expected_starting_properties, bcs::to_bytes(&ability_property));
-    //     assert!(sword_type.starting_properties == expected_starting_properties, 12);
-    // }
+        let expected_starting_properties = vector::map_ref(&property_values, |value| {
+            bcs::to_bytes(value)
+        });
+        vector::push_back(&mut expected_starting_properties, bcs::to_bytes(&ability_property));
+        assert!(sword_type.starting_properties == expected_starting_properties, 12);
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 3, location = Self)]
-    // fun test_create_sword_collection_incorrect_combine_amount_too_small() acquires State {
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 1;
-    //     let property_values = vector[10, 5];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    // }
+    #[test]
+    #[expected_failure(abort_code = 3, location = Self)]
+    fun test_create_sword_collection_incorrect_combine_amount_too_small() acquires State {
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 1;
+        let property_values = vector[10, 5];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 3, location = Self)]
-    // fun test_create_sword_collection_incorrect_combine_amount_too_big() acquires State {
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 2222;
-    //     let property_values = vector[10, 5];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    // }
+    #[test]
+    #[expected_failure(abort_code = 3, location = Self)]
+    fun test_create_sword_collection_incorrect_combine_amount_too_big() acquires State {
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 2222;
+        let property_values = vector[10, 5];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 4, location = Self)]
-    // fun test_create_sword_collection_incorrect_property_values_sum() acquires State {
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 4;
-    //     let property_values = vector[10, 55, 5];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    // }
+    #[test]
+    #[expected_failure(abort_code = 4, location = Self)]
+    fun test_create_sword_collection_incorrect_property_values_sum() acquires State {
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 4;
+        let property_values = vector[10, 55, 5];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 1, location = Self)]
-    // fun test_create_sword_collection_state_not_initialized() acquires State {
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 4;
-    //     let property_values = vector[10, 0, 3];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    // }
+    #[test]
+    #[expected_failure(abort_code = 1, location = Self)]
+    fun test_create_sword_collection_state_not_initialized() acquires State {
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 4;
+        let property_values = vector[10, 0, 3];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+    }
 
-    // #[test]
-    // #[expected_failure(abort_code = 5, location = Self)]
-    // fun test_create_sword_collection_already_exists() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    #[expected_failure(abort_code = 5, location = Self)]
+    fun test_create_sword_collection_already_exists() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let name = string::utf8(b"Sword collection");
-    //     let description = string::utf8(b"This is a sword collection");
-    //     let uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let combine_amount = 4;
-    //     let property_values = vector[10, 0, 3];
-    //     let ability_property = string::utf8(b"Fire imbued");
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    //     create_sword_collection(
-    //         &account,
-    //         name,
-    //         description,
-    //         uri,
-    //         combine_amount,
-    //         property_values,
-    //         ability_property
-    //     );
-    // }
+        let account = account::create_account_for_test(@0xCAFE);
+        let name = string::utf8(b"Sword collection");
+        let description = string::utf8(b"This is a sword collection");
+        let uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let combine_amount = 4;
+        let property_values = vector[10, 0, 3];
+        let ability_property = string::utf8(b"Fire imbued");
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+        create_sword_collection(
+            &account,
+            name,
+            description,
+            uri,
+            combine_amount,
+            property_values,
+            ability_property
+        );
+    }
 
-    // #[test]
-    // fun test_create_dragon() acquires State {
-    //     let aptos_framework = account::create_account_for_test(@aptos_framework);
-    //     timestamp::set_time_has_started_for_testing(&aptos_framework);
+    #[test]
+    fun test_create_dragon() acquires State {
+        let aptos_framework = account::create_account_for_test(@aptos_framework);
+        timestamp::set_time_has_started_for_testing(&aptos_framework);
 
-    //     let admin = account::create_account_for_test(@admin);
-    //     init(&admin);
+        let admin = account::create_account_for_test(@admin);
+        init(&admin);
 
-    //     let account = account::create_account_for_test(@0xCAFE);
-    //     let collection_name = string::utf8(b"Dragon collection");
-    //     let collection_description = string::utf8(b"This is a dragon collection");
-    //     let collection_uri =
-    //         string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
-    //     let ability_property = string::utf8(b"YEET");
-    //     create_dragon_collection(
-    //         &account,
-    //         collection_name,
-    //         collection_description,
-    //         collection_uri,
-    //         breeding_time,
-    //         ability_property
-    //     );
+        let account = account::create_account_for_test(@0xCAFE);
+        let collection_name = string::utf8(b"Dragon collection");
+        let collection_description = string::utf8(b"This is a dragon collection");
+        let collection_uri =
+            string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        let breeding_time = 60 * 60 * 24 * 21 + 60 * 60 * 11;
+        let ability_property = string::utf8(b"YEET");
+        create_dragon_collection(
+            &account,
+            collection_name,
+            collection_description,
+            collection_uri,
+            breeding_time,
+            ability_property
+        );
 
-    //     let resource_account_address = account::create_resource_address(&@admin, BREEDER_SEED);
-    //     let creation_number = account::get_guid_next_creation_num(resource_account_address);
+        let resource_account_address = account::create_resource_address(&@admin, BREEDER_SEED);
+        let creation_number = account::get_guid_next_creation_num(resource_account_address);
 
-    //     let dragon_name = string::utf8(b"The first dragon");
-    //     let dragon_description = string::utf8(b"This is the very first dragon in this collection");
-    //     let dragon_uri = string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
-    //     create_dragon(&account, collection_name, dragon_name, dragon_description, dragon_uri);
+        let dragon_name = string::utf8(b"The first dragon");
+        let dragon_description = string::utf8(b"This is the very first dragon in this collection");
+        let dragon_uri = string::utf8(b"https://static.wikia.nocookie.net/dank_memer/images/c/c7/Dragon.png/revision/latest/thumbnail/width/360/height/360?cb=20221128103212");
+        create_dragon(&account, collection_name, dragon_name, dragon_description, dragon_uri);
 
-    //     let state = borrow_global<State>(@admin);
-    //     assert!(simple_map::length(&state.breeder.collections) == 1, 0);
-    //     assert!(simple_map::contains_key(&state.breeder.collections, &collection_name), 1);
-    //     assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 2);
-    //     assert!(event::counter(&state.breeder.create_dragon_collection_events) == 1, 3);
-    //     assert!(event::counter(&state.breeder.create_dragon_events) == 1, 4);
-    //     assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
-    //     assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
-    //     assert!(simple_map::length(&state.combiner.collections) == 0, 7);
-    //     assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 8);
-    //     assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
-    //     assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
+        let state = borrow_global<State>(@admin);
+        assert!(simple_map::length(&state.breeder.collections) == 1, 0);
+        assert!(simple_map::contains_key(&state.breeder.collections, &collection_name), 1);
+        assert!(simple_map::length(&state.breeder.ongoing_breedings) == 0, 2);
+        assert!(event::counter(&state.breeder.create_dragon_collection_events) == 1, 3);
+        assert!(event::counter(&state.breeder.create_dragon_events) == 1, 4);
+        assert!(event::counter(&state.breeder.breed_dragons_events) == 0, 5);
+        assert!(event::counter(&state.breeder.hatch_dragon_events) == 0, 6);
+        assert!(simple_map::length(&state.combiner.collections) == 0, 7);
+        assert!(event::counter(&state.combiner.create_sword_collection_events) == 0, 8);
+        assert!(event::counter(&state.combiner.create_sword_events) == 0, 9);
+        assert!(event::counter(&state.combiner.combine_swords_events) == 0, 10);
 
-    //     let dragon_race = simple_map::borrow(&state.breeder.collections, &collection_name);
-    //     assert!(dragon_race.breeding_time == breeding_time, 11);
+        let dragon_race = simple_map::borrow(&state.breeder.collections, &collection_name);
+        assert!(dragon_race.breeding_time == breeding_time, 11);
 
-    //     let expected_starting_properties = vector[
-    //         bcs::to_bytes(&40),
-    //         bcs::to_bytes(&3),
-    //         bcs::to_bytes(&7),
-    //         bcs::to_bytes(&ability_property)
-    //     ];
-    //     assert!(dragon_race.starting_properties == expected_starting_properties, 12);
+        let expected_starting_properties = vector[
+            bcs::to_bytes(&40),
+            bcs::to_bytes(&3),
+            bcs::to_bytes(&7),
+            bcs::to_bytes(&ability_property)
+        ];
+        assert!(dragon_race.starting_properties == expected_starting_properties, 12);
 
-    //     let token_address = object::create_guid_object_address(resource_account_address, creation_number);
-    //     let token_object = object::address_to_object<Token>(token_address);
-    //     assert!(!aptos_token::are_properties_mutable(token_object), 13);
-    //     assert!(!aptos_token::is_burnable(token_object), 14);
-    //     assert!(aptos_token::is_freezable_by_creator(token_object), 15);
-    //     assert!(!aptos_token::is_mutable_description(token_object), 16);
-    //     assert!(!aptos_token::is_mutable_name(token_object), 17);
-    //     assert!(!aptos_token::is_mutable_uri(token_object), 18);
-    //     assert!(token::creator(token_object) == resource_account_address, 19);
-    //     assert!(token::collection_name(token_object) == collection_name, 20);
-    //     assert!(token::description(token_object) == dragon_description, 21);
-    //     assert!(token::name(token_object) == dragon_name, 22);
-    //     assert!(token::uri(token_object) == dragon_uri, 23);
+        let token_address = object::create_guid_object_address(resource_account_address, creation_number);
 
-    //     let maybe_token_royalty = token::royalty(token_object);
-    //     assert!(option::is_some(&maybe_token_royalty), 24);
+        let token_object = object::address_to_object<Token>(token_address);
+        assert!(!aptos_token::are_properties_mutable(token_object), 13);
+        assert!(!aptos_token::is_burnable(token_object), 14);
+        assert!(aptos_token::is_freezable_by_creator(token_object), 15);
+        assert!(!aptos_token::is_mutable_description(token_object), 16);
+        assert!(!aptos_token::is_mutable_name(token_object), 17);
+        assert!(!aptos_token::is_mutable_uri(token_object), 18);
+        assert!(token::creator(token_object) == resource_account_address, 19);
+        assert!(token::collection_name(token_object) == collection_name, 20);
+        assert!(token::description(token_object) == dragon_description, 21);
+        assert!(token::name(token_object) == dragon_name, 22);
+        assert!(token::uri(token_object) == dragon_uri, 23);
 
-    //     let token_royalty = option::extract(&mut maybe_token_royalty);
-    //     assert!(royalty::denominator(&token_royalty) == 10, 25);
-    //     assert!(royalty::numerator(&token_royalty) == 1, 26);
-    //     assert!(royalty::payee_address(&token_royalty) == resource_account_address, 27);
-    // }
+        let maybe_token_royalty = token::royalty(token_object);
+        assert!(option::is_some(&maybe_token_royalty), 24);
+
+        let token_royalty = option::extract(&mut maybe_token_royalty);
+        assert!(royalty::denominator(&token_royalty) == 10, 25);
+        assert!(royalty::numerator(&token_royalty) == 1, 26);
+        assert!(royalty::payee_address(&token_royalty) == resource_account_address, 27);
+    }
 
     // #[test]
     // #[expected_failure(abort_code = 1, location = Self)]
